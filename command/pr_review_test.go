@@ -152,7 +152,7 @@ func TestPRReview_blank_comment(t *testing.T) {
 	http.StubRepoResponse("OWNER", "REPO")
 
 	_, err := RunCommand(`pr review --comment 123`)
-	eq(t, err.Error(), "did not understand desired review action: cannot leave blank comment")
+	eq(t, err.Error(), "did not understand desired review action: comment-only review cannot be blank")
 }
 
 func TestPRReview(t *testing.T) {

@@ -73,7 +73,7 @@ func processReviewOpt(cmd *cobra.Command) (*api.PullRequestReviewInput, error) {
 	}
 
 	if flag == "comment" && (body == " " || len(body) == 0) {
-		return nil, errors.New("cannot leave blank comment")
+		return nil, errors.New("comment-only review cannot be blank")
 	}
 
 	return &api.PullRequestReviewInput{
