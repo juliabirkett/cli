@@ -11,6 +11,7 @@ import (
 
 	"github.com/cli/cli/api"
 	"github.com/cli/cli/pkg/surveyext"
+	"github.com/cli/cli/utils"
 )
 
 func init() {
@@ -134,9 +135,13 @@ func prReview(cmd *cobra.Command, args []string) error {
 	}
 
 	if input == nil {
-		input, err = reviewSurvey()
+		input, err = reviewSurvey(cmd)
 		if err != nil {
 			return err
+		}
+		if input == nil && err == nil {
+			// Cancelled.
+			return nil
 		}
 	}
 
@@ -148,18 +153,14 @@ func prReview(cmd *cobra.Command, args []string) error {
 	return nil
 }
 
-func reviewSurvey() (*api.PullRequestReviewInput, error) {
-	// TODO
-	input := &api.PullRequestReviewInput{
-		Body:  "TODO",
-		State: api.ReviewComment,
+func reviewSurvey(cmd *cobra.Command) (*api.PullRequestReviewInput, error) {
+	editorCommand, err := determineEditor(cmd)
+	if err != nil {
+		return nil, err
 	}
 
-	// Type of review (approve, request changes, comment)
-	// body of review (enforcing non-empty for comment)
-
 	typeAnswers := struct {
-		ReviewType int
+		ReviewType string
 	}{}
 	typeQs := []*survey.Question{
 		{
@@ -176,7 +177,7 @@ func reviewSurvey() (*api.PullRequestReviewInput, error) {
 		},
 	}
 
-	err := SurveyAsk(typeQs, typeAnswers)
+	err = SurveyAsk(typeQs, &typeAnswers)
 	if err != nil {
 		return nil, err
 	}
@@ -184,36 +185,77 @@ func reviewSurvey() (*api.PullRequestReviewInput, error) {
 	reviewState := api.ReviewComment
 
 	switch typeAnswers.ReviewType {
-	case 1:
+	case "Approve":
 		reviewState = api.ReviewApprove
-	case 2:
-		reviewState = api.RequestChanges
-	case 3:
+	case "Request Changes":
+		reviewState = api.ReviewRequestChanges
+	case "Cancel":
 		return nil, nil
 	}
 
-	editorCommand := os.Getenv("GH_EDITOR")
-	if editorCommand == "" {
-		ctx := contextForCommand(cmd)
-		cfg, err := ctx.Config()
-		if err != nil {
-			return nil, fmt.Errorf("could not read config: %w", err)
-		}
-		editorCommand, _ = cfg.Get(defaultHostname, "editor")
-	}
 	bodyAnswers := struct {
 		Body string
 	}{}
-	bodyQuestion := &survey.Question{
-		Name: "body",
-		Prompt: &surveyext.GhEditor{
-			EditorCommand: editorCommand,
-			Editor: &survey.Editor{
-				Message:  "Review Body",
-				FileName: "*.md",
+
+	bodyQs := []*survey.Question{
+		&survey.Question{
+			Name: "body",
+			Prompt: &surveyext.GhEditor{
+				EditorCommand: editorCommand,
+				Editor: &survey.Editor{
+					Message:  "Review Body",
+					FileName: "*.md",
+				},
 			},
 		},
 	}
 
-	return input, nil
+	err = SurveyAsk(bodyQs, &bodyAnswers)
+	if err != nil {
+		return nil, err
+	}
+
+	if reviewState == api.ReviewComment && bodyAnswers.Body == "" {
+		return nil, errors.New("cannot leave blank comment")
+	}
+
+	if len(bodyAnswers.Body) > 0 {
+		out := colorableOut(cmd)
+		renderedBody, err := utils.RenderMarkdown(bodyAnswers.Body)
+		if err != nil {
+			return nil, err
+		}
+
+		fmt.Fprintf(out, "Got:\n%s", renderedBody)
+	}
+
+	confirmAnswers := struct {
+		Confirm string
+	}{}
+	confirmQs := []*survey.Question{
+		{
+			Name: "confirm",
+			Prompt: &survey.Select{
+				Message: "What's next?",
+				Options: []string{
+					"Submit",
+					"Cancel",
+				},
+			},
+		},
+	}
+
+	err = SurveyAsk(confirmQs, &confirmAnswers)
+	if err != nil {
+		return nil, err
+	}
+
+	if confirmAnswers.Confirm == "Cancel" {
+		return nil, nil
+	}
+
+	return &api.PullRequestReviewInput{
+		Body:  bodyAnswers.Body,
+		State: reviewState,
+	}, nil
 }

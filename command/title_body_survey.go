@@ -133,7 +133,7 @@ func titleBodySurvey(cmd *cobra.Command, providedTitle, providedBody string, def
 		qs = append(qs, bodyQuestion)
 	}
 
-	err := SurveyAsk(qs, &inProgress)
+	err = SurveyAsk(qs, &inProgress)
 	if err != nil {
 		return nil, fmt.Errorf("could not prompt: %w", err)
 	}
