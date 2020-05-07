@@ -3,11 +3,15 @@ package command
 import (
 	"errors"
 	"fmt"
+	"os"
 	"strconv"
 	"strings"
 
-	"github.com/cli/cli/api"
+	"github.com/AlecAivazis/survey/v2"
 	"github.com/spf13/cobra"
+
+	"github.com/cli/cli/api"
+	"github.com/cli/cli/pkg/surveyext"
 )
 
 func init() {
@@ -52,7 +56,9 @@ func processReviewOpt(cmd *cobra.Command) (*api.PullRequestReviewInput, error) {
 		state = api.ReviewComment
 	}
 
-	if found != 1 {
+	if found == 0 {
+		return nil, nil // signal interactive mode
+	} else if found > 1 {
 		return nil, errors.New("need exactly one of --approve, --request-changes, or --comment")
 	}
 
@@ -128,10 +134,87 @@ func prReview(cmd *cobra.Command, args []string) error {
 		}
 	}
 
+	if input == nil {
+		input, err = reviewSurvey()
+		if err != nil {
+			return err
+		}
+	}
+
 	err = api.AddReview(apiClient, pr, input)
 	if err != nil {
 		return fmt.Errorf("failed to create review: %w", err)
 	}
 
 	return nil
+}
+
+func reviewSurvey() (*api.PullRequestReviewInput, error) {
+	// TODO
+	input := &api.PullRequestReviewInput{
+		Body:  "TODO",
+		State: api.ReviewComment,
+	}
+
+	// Type of review (approve, request changes, comment)
+	// body of review (enforcing non-empty for comment)
+
+	typeAnswers := struct {
+		ReviewType int
+	}{}
+	typeQs := []*survey.Question{
+		{
+			Name: "reviewType",
+			Prompt: &survey.Select{
+				Message: "What kind of review do you want to create?",
+				Options: []string{
+					"Comment",
+					"Approve",
+					"Request Changes",
+					"Cancel",
+				},
+			},
+		},
+	}
+
+	err := SurveyAsk(typeQs, typeAnswers)
+	if err != nil {
+		return nil, err
+	}
+
+	reviewState := api.ReviewComment
+
+	switch typeAnswers.ReviewType {
+	case 1:
+		reviewState = api.ReviewApprove
+	case 2:
+		reviewState = api.RequestChanges
+	case 3:
+		return nil, nil
+	}
+
+	editorCommand := os.Getenv("GH_EDITOR")
+	if editorCommand == "" {
+		ctx := contextForCommand(cmd)
+		cfg, err := ctx.Config()
+		if err != nil {
+			return nil, fmt.Errorf("could not read config: %w", err)
+		}
+		editorCommand, _ = cfg.Get(defaultHostname, "editor")
+	}
+	bodyAnswers := struct {
+		Body string
+	}{}
+	bodyQuestion := &survey.Question{
+		Name: "body",
+		Prompt: &surveyext.GhEditor{
+			EditorCommand: editorCommand,
+			Editor: &survey.Editor{
+				Message:  "Review Body",
+				FileName: "*.md",
+			},
+		},
+	}
+
+	return input, nil
 }

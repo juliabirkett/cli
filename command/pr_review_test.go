@@ -11,7 +11,6 @@ func TestPRReview_validation(t *testing.T) {
 	initBlankContext("", "OWNER/REPO", "master")
 	http := initFakeHTTP()
 	for _, cmd := range []string{
-		`pr review 123`,
 		`pr review --approve --comment 123`,
 		`pr review --approve="cool" --comment="rad" 123`,
 	} {
@@ -203,4 +202,8 @@ func TestPRReview(t *testing.T) {
 		eq(t, reqBody.Variables.Input.Event, kase.ExpectedEvent)
 		eq(t, reqBody.Variables.Input.Body, kase.ExpectedBody)
 	}
+}
+
+func TestPRReview_interactive(t *testing.T) {
+	// TODO
 }
